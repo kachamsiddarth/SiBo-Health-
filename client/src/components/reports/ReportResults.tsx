@@ -163,7 +163,7 @@ export function ReportResults({
   }
 
   const updateTest = (testId: string, field: 'parameter' | 'value' | 'unit' | 'observation', value: string) => {
-    setLocalReport((current) => {
+    setLocalReport((current: MedicalReport | null) => {
       if (!current) {
         return current
       }
@@ -171,7 +171,7 @@ export function ReportResults({
       return {
         ...current,
         reviewStatus: 'HUMAN-EDITED',
-        tests: current.tests.map((test) => {
+        tests: current.tests.map((test: MedicalReport['tests'][number]) => {
           if (test.id !== testId) {
             return test
           }
@@ -196,7 +196,7 @@ export function ReportResults({
   }
 
   const updateReferenceRange = (testId: string, value: string) => {
-    setLocalReport((current) => {
+    setLocalReport((current: MedicalReport | null) => {
       if (!current) {
         return current
       }
@@ -204,7 +204,7 @@ export function ReportResults({
       return {
         ...current,
         reviewStatus: 'HUMAN-EDITED',
-        tests: current.tests.map((test) => {
+        tests: current.tests.map((test: MedicalReport['tests'][number]) => {
           if (test.id !== testId) {
             return test
           }
@@ -225,7 +225,7 @@ export function ReportResults({
   }
 
   const verifyTest = (testId: string) => {
-    setLocalReport((current) => {
+    setLocalReport((current: MedicalReport | null) => {
       if (!current) {
         return current
       }
@@ -233,7 +233,9 @@ export function ReportResults({
       return {
         ...current,
         reviewStatus: 'HUMAN-VERIFIED',
-        tests: current.tests.map((test) => (test.id === testId ? { ...test, reviewStatus: 'HUMAN-VERIFIED' } : test))
+        tests: current.tests.map((test: MedicalReport['tests'][number]) =>
+          test.id === testId ? { ...test, reviewStatus: 'HUMAN-VERIFIED' } : test
+        )
       }
     })
   }
@@ -434,7 +436,7 @@ export function ReportResults({
             Observations
           </div>
           <ul className="space-y-2 text-sm leading-6 text-slate-700">
-            {localReport.observations.map((observation) => (
+            {localReport.observations.map((observation: string) => (
               <li key={observation}>{observation}</li>
             ))}
           </ul>
@@ -445,7 +447,7 @@ export function ReportResults({
         <div className="mt-5 border-2 border-ink bg-sky-50 p-3">
           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-600">Extracted notes</p>
           <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
-            {localReport.extractedNotes.map((note) => (
+            {localReport.extractedNotes.map((note: string) => (
               <li key={note}>{note}</li>
             ))}
           </ul>

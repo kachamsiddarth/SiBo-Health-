@@ -435,10 +435,20 @@ export function compareReports(previousReport: MedicalReport | null | undefined,
   return results
 }
 
-export function buildReportAnalysis(patient: PatientRecord | null, currentReport: MedicalReport | null, previousReport?: MedicalReport | null) {
+export type ReportAnalysis = {
+  normalizedTests: NormalizedTest[]
+  conflicts: ReviewConflict[]
+  longitudinalChanges: LongitudinalChange[]
+}
+
+export function buildReportAnalysis(
+  patient: PatientRecord | null,
+  currentReport: MedicalReport | null,
+  previousReport?: MedicalReport | null
+): ReportAnalysis {
   return {
     normalizedTests: normalizeReportTests(currentReport),
     conflicts: detectConflicts(patient, currentReport),
-    longitudinalChanges: compareReports(previousReport ?? null, currentReport) 
+    longitudinalChanges: compareReports(previousReport ?? null, currentReport)
   }
 }
