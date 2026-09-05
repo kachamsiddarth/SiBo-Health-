@@ -6,10 +6,10 @@ const stringListField = z
     z
       .string()
       .trim()
-      .transform((value) =>
+      .transform((value: string) =>
         value
           .split(',')
-          .map((item) => item.trim())
+          .map((item: string) => item.trim())
           .filter(Boolean)
       )
   ])
@@ -18,7 +18,7 @@ const stringListField = z
 export const patientRecordSchema = z.object({
   id: z.string().min(1, 'Record ID is required.').max(100).optional().or(z.literal('')),
   name: z.preprocess(
-    (value) => (typeof value === 'string' ? value : ''),
+    (value: unknown) => (typeof value === 'string' ? value : ''),
     z.string().trim().min(1, 'Name is required.').max(120, 'Name is too long.')
   ),
   age: z
