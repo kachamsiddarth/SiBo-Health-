@@ -2,8 +2,18 @@ import type { MedicalReport, MedicalReportInput } from '../../../shared/schemas/
 
 export type ExtractReportInput = MedicalReportInput
 
+function getApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_URL
+  return configured && configured.trim() ? configured.trim().replace(/\/$/, '') : ''
+}
+
+function getApiUrl(path: string): string {
+  const base = getApiBaseUrl()
+  return base ? `${base}${path}` : path
+}
+
 export async function extractMedicalReport(input: ExtractReportInput): Promise<MedicalReport> {
-  const response = await fetch('/api/reports/extract', {
+  const response = await fetch(getApiUrl('/api/reports/extract'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -35,7 +45,7 @@ export async function generateMedicalSummary(input: {
   report: MedicalReport
   previousReport?: MedicalReport | null
 }): Promise<{ summary: string }> {
-  const response = await fetch('/api/reports/summary', {
+  const response = await fetch(getApiUrl('/api/reports/summary'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
