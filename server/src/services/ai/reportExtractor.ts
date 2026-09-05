@@ -2,9 +2,17 @@ import { randomUUID } from 'crypto'
 
 import { GoogleGenAI } from '@google/genai'
 
-import { env } from '../../config/env.js'
 import { googleAiConfig } from '../../config/google.js'
 import { medicalReportSchema, type MedicalReport, type MedicalReportInput } from '../../schemas/report.schema.js'
+
+type SummaryPatientContext = {
+  allergies?: string[]
+  medications?: string[]
+  conditions?: string[]
+  symptoms?: string[]
+  age?: number | string
+  sex?: string
+}
 
 const REPORT_TEXT_LIMIT = 20000
 
@@ -141,10 +149,9 @@ function splitFieldList(value: string | undefined): string[] {
     .split(/[,;\n]+/)
     .map((entry) => entry.trim())
     .filter(Boolean)
-    .filter((entry) => !/^(none|no known|not provided|unknown|n\/a)$/i.test(entry))
 }
 
-function extractPatientContextFromText(text: string): {
+export function extractPatientContextFromText(text: string): {
   allergies?: string[]
   medications?: string[]
   conditions?: string[]
@@ -289,6 +296,33 @@ function stripMarkdownCodeFence(text: string): string {
   return text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
 }
 
+function sanitizeNullishValues(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return undefined
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => sanitizeNullishValues(entry))
+      .filter((entry) => entry !== undefined)
+  }
+
+  if (typeof value === 'object') {
+    const cleaned: Record<string, unknown> = {}
+
+    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+      const sanitized = sanitizeNullishValues(nestedValue)
+      if (sanitized !== undefined) {
+        cleaned[key] = sanitized
+      }
+    }
+
+    return cleaned
+  }
+
+  return value
+}
+
 function classifyAiFailure(error: unknown): { statusCode: number; code: string; message: string } {
   const text = error instanceof Error ? error.message : String(error)
   const lower = text.toLowerCase()
@@ -352,13 +386,14 @@ function deriveStatus(value: unknown, referenceRange?: unknown): 'low' | 'normal
 }
 
 function normalizeGeminiOutput(parsed: unknown, input: MedicalReportInput): MedicalReport {
-  const effectiveReportDate = input.reportDate ?? (parsed && typeof parsed === 'object' && 'reportDate' in parsed && typeof (parsed as Record<string, unknown>).reportDate === 'string' ? String((parsed as Record<string, unknown>).reportDate) : undefined)
-  const effectivePatientContext = (parsed && typeof parsed === 'object' && 'patientContext' in parsed && parsed.patientContext)
-    ? parsed.patientContext
+  const cleanedParsed = sanitizeNullishValues(parsed) as Record<string, unknown>
+  const effectiveReportDate = input.reportDate ?? (cleanedParsed && typeof cleanedParsed === 'object' && 'reportDate' in cleanedParsed && typeof cleanedParsed.reportDate === 'string' ? cleanedParsed.reportDate : undefined)
+  const effectivePatientContext = (cleanedParsed && typeof cleanedParsed === 'object' && 'patientContext' in cleanedParsed && cleanedParsed.patientContext)
+    ? cleanedParsed.patientContext
     : extractPatientContextFromText(input.text)
 
-  if (Array.isArray(parsed)) {
-    const tests = parsed.map((entry, index) => {
+  if (Array.isArray(cleanedParsed)) {
+    const tests = cleanedParsed.map((entry, index) => {
       const candidate = entry as Record<string, unknown>
       const parameter = String(candidate.parameter_name ?? candidate.parameter ?? `Test ${index + 1}`)
       const unit = typeof candidate.unit === 'string' ? candidate.unit : undefined
@@ -404,8 +439,8 @@ function normalizeGeminiOutput(parsed: unknown, input: MedicalReportInput): Medi
     })
   }
 
-  if (parsed && typeof parsed === 'object') {
-    const candidate = parsed as Record<string, unknown>
+  if (cleanedParsed && typeof cleanedParsed === 'object') {
+    const candidate = cleanedParsed as Record<string, unknown>
     const tests = Array.isArray(candidate.tests) ? candidate.tests : []
 
     if (tests.length > 0) {
@@ -454,7 +489,7 @@ function normalizeGeminiOutput(parsed: unknown, input: MedicalReportInput): Medi
   }
 
   return medicalReportSchema.parse({
-    ...((parsed && typeof parsed === 'object') ? parsed : {}),
+    ...((cleanedParsed && typeof cleanedParsed === 'object') ? cleanedParsed : {}),
     reportDate: effectiveReportDate,
     source: {
       type: 'user-provided',
@@ -480,6 +515,13 @@ export async function extractMedicalReport(input: MedicalReportInput): Promise<M
   }
 
   try {
+    console.info('[sibo-ai]', {
+      phase: 'extract-start',
+      hasApiKey: Boolean(googleAiConfig.apiKey),
+      model: googleAiConfig.model,
+      textLength: input.text.length
+    })
+
     const ai = googleAiConfig.apiKey
       ? new GoogleGenAI({
           vertexai: true,
@@ -506,10 +548,38 @@ export async function extractMedicalReport(input: MedicalReportInput): Promise<M
     })
 
     const rawText = stripMarkdownCodeFence(String(response.text ?? ''))
-    const parsed = JSON.parse(rawText)
-    const report = normalizeGeminiOutput(parsed, input)
+    console.info('[sibo-ai]', {
+      phase: 'extract-response',
+      model: googleAiConfig.model,
+      responseReceived: Boolean(rawText),
+      responseLength: rawText.length
+    })
 
-    return report
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawText)
+      console.info('[sibo-ai]', { phase: 'extract-json-parse', success: true, responseLength: rawText.length })
+    } catch (parseError) {
+      console.error('[sibo-ai]', {
+        phase: 'extract-json-parse',
+        success: false,
+        error: parseError instanceof Error ? parseError.message : String(parseError)
+      })
+      throw parseError
+    }
+
+    try {
+      const report = normalizeGeminiOutput(parsed, input)
+      console.info('[sibo-ai]', { phase: 'extract-zod-validate', success: true, tests: report.tests.length })
+      return report
+    } catch (schemaError) {
+      console.error('[sibo-ai]', {
+        phase: 'extract-zod-validate',
+        success: false,
+        error: schemaError instanceof Error ? schemaError.message : String(schemaError)
+      })
+      throw schemaError
+    }
   } catch (error) {
     const classification = classifyAiFailure(error)
     const appError = new Error(classification.message) as Error & { statusCode?: number; code?: string }
@@ -517,5 +587,82 @@ export async function extractMedicalReport(input: MedicalReportInput): Promise<M
     appError.code = classification.code
 
     throw appError
+  }
+}
+
+function buildDeterministicSummary(payload: { patient?: SummaryPatientContext | null; report: MedicalReport; previousReport?: MedicalReport | null }) {
+  const { report, previousReport, patient } = payload
+  const tests = report.tests ?? []
+  const notableMeasurements = tests.slice(0, 3).map((test) => {
+    const value = typeof test.value === 'number' ? test.value : String(test.value ?? 'not provided')
+    const rangeText = test.referenceRange?.text ? ` (reference: ${test.referenceRange.text})` : ''
+    return `${test.parameter}: ${value}${rangeText}`
+  })
+
+  const flags = []
+  if (patient?.allergies?.length) flags.push(`Patient allergies: ${patient.allergies.join(', ')}`)
+  if (patient?.medications?.length) flags.push(`Patient medications: ${patient.medications.join(', ')}`)
+  if (report.patientContext?.allergies?.length) flags.push(`Current report allergies: ${report.patientContext.allergies.join(', ')}`)
+  if (report.patientContext?.medications?.length) flags.push(`Current report medications: ${report.patientContext.medications.join(', ')}`)
+  if (previousReport) flags.push(`Previous report compared: ${previousReport.tests.length} measurements available`)
+
+  return [
+    'The report contains extracted clinical information from the supplied report data.',
+    notableMeasurements.length > 0 ? `Key measurements include: ${notableMeasurements.join('; ')}.` : 'No numeric measurements were extracted.',
+    flags.length > 0 ? `Relevant context includes: ${flags.join('; ')}.` : 'No additional patient context was captured.',
+    'Any values marked LOW, HIGH, or UNKNOWN reflect the source-provided range analysis and should be reviewed by a human when conflicts or missing information are present.'
+  ].join(' ')
+}
+
+export async function generateReportSummary(payload: {
+  patient?: SummaryPatientContext | null
+  report: MedicalReport
+  previousReport?: MedicalReport | null
+}): Promise<{ summary: string }> {
+  if (!payload.report) {
+    throw new Error('A report is required to generate a summary.')
+  }
+
+  if (!googleAiConfig.enabled) {
+    return { summary: buildDeterministicSummary(payload) }
+  }
+
+  try {
+    console.info('[sibo-ai]', {
+      phase: 'summary-start',
+      hasApiKey: Boolean(googleAiConfig.apiKey),
+      model: googleAiConfig.model
+    })
+
+    const ai = googleAiConfig.apiKey
+      ? new GoogleGenAI({ vertexai: true, apiKey: googleAiConfig.apiKey })
+      : new GoogleGenAI({ vertexai: true, project: googleAiConfig.project, location: googleAiConfig.location })
+
+    const prompt = `You are summarizing a medical report using the already-extracted structured data below. Do not diagnose or provide treatment advice. Use careful neutral language. Return JSON only in the form {"summary":"..."}.\n\nINPUT:\n${JSON.stringify({ patient: payload.patient ?? null, report: payload.report, previousReport: payload.previousReport ?? null }, null, 2)}`
+
+    const response = await ai.models.generateContent({
+      model: googleAiConfig.model,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: { responseMimeType: 'application/json', temperature: 0.2 }
+    })
+
+    const rawText = stripMarkdownCodeFence(String(response.text ?? ''))
+    console.info('[sibo-ai]', {
+      phase: 'summary-response',
+      responseReceived: Boolean(rawText),
+      responseLength: rawText.length
+    })
+
+    const parsed = JSON.parse(rawText)
+    const sanitized = sanitizeNullishValues(parsed) as Record<string, unknown>
+    const summary = typeof sanitized?.summary === 'string' && sanitized.summary.trim() ? sanitized.summary : buildDeterministicSummary(payload)
+
+    return { summary }
+  } catch (error) {
+    console.warn('[sibo-ai]', {
+      phase: 'summary-fallback',
+      reason: error instanceof Error ? error.message : String(error)
+    })
+    return { summary: buildDeterministicSummary(payload) }
   }
 }

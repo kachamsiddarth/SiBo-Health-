@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { buildReportAnalysis, compareReports, detectConflicts, evaluateReferenceRange, normalizeParameterName } from '../../../shared/analysis/reportAnalysis'
 import { parseMedicalReport } from '../../../shared/schemas/report.schema'
+import { extractPatientContextFromText } from '../../../server/src/services/ai/reportExtractor'
 
 describe('phase 5 and 6 deterministic analysis', () => {
   it('normalizes common parameter aliases while preserving original values', () => {
@@ -283,6 +284,181 @@ describe('phase 5 and 6 deterministic analysis', () => {
     })
 
     expect(compareReports(null, report)).toEqual([])
+  })
+
+  it('preserves report allergies and medications in structured patientContext during extraction', () => {
+    const patientContext = extractPatientContextFromText(
+      'Allergies: No known allergies\nCurrent Medications: Metformin 500 mg\nHemoglobin: 13.2 g/dL\nReference Range: 12.0 - 16.0 g/dL'
+    )
+
+    expect(patientContext.allergies).toEqual(['No known allergies'])
+    expect(patientContext.medications).toEqual(['Metformin 500 mg'])
+  })
+
+  it('does not create a symptom conflict when the report omits symptom details', () => {
+    const patientRecord = {
+      id: 'p-symptom-missing',
+      name: 'Test Patient',
+      age: 42,
+      sex: 'Female',
+      symptoms: ['Fatigue'],
+      conditions: ['Anemia'],
+      allergies: ['Penicillin'],
+      medications: ['None'],
+      notes: 'Patient intake notes',
+      sourceType: 'user-provided' as const,
+      sourceLabel: 'Patient Intake'
+    }
+
+    const report = parseMedicalReport({
+      id: 'r-symptom-missing',
+      reportDate: '2026-09-05',
+      source: {
+        type: 'ai-extracted',
+        label: 'AI extracted',
+        fileName: 'lab.pdf'
+      },
+      patientContext: {
+        allergies: ['No known allergies'],
+        medications: ['Metformin 500 mg'],
+        conditions: ['Anemia'],
+        symptoms: []
+      },
+      tests: [],
+      observations: ['Current medications: Metformin 500 mg'],
+      extractedNotes: ['No symptoms documented.'],
+      extractionMetadata: {
+        model: 'gemini-2.5-flash',
+        extractedAt: '2026-09-05T12:00:00Z'
+      }
+    })
+
+    const conflicts = detectConflicts(patientRecord, report)
+    expect(conflicts.some((conflict) => conflict.field === 'symptoms')).toBe(false)
+  })
+
+  it('creates a conflict when a patient symptom is explicitly contradicted by an explicit no-symptoms report', () => {
+    const patientRecord = {
+      id: 'p-symptom-contradiction',
+      name: 'Test Patient',
+      age: 42,
+      sex: 'Female',
+      symptoms: ['Fatigue'],
+      conditions: ['Anemia'],
+      allergies: [],
+      medications: [],
+      notes: 'Patient intake notes',
+      sourceType: 'user-provided' as const,
+      sourceLabel: 'Patient Intake'
+    }
+
+    const report = parseMedicalReport({
+      id: 'r-symptom-contradiction',
+      reportDate: '2026-09-05',
+      source: {
+        type: 'ai-extracted',
+        label: 'AI extracted',
+        fileName: 'lab.pdf'
+      },
+      patientContext: {
+        allergies: [],
+        medications: [],
+        conditions: ['Anemia'],
+        symptoms: ['No known symptoms']
+      },
+      tests: [],
+      observations: [],
+      extractedNotes: ['No known symptoms.'],
+      extractionMetadata: {
+        model: 'gemini-2.5-flash',
+        extractedAt: '2026-09-05T12:00:00Z'
+      }
+    })
+
+    const conflicts = detectConflicts(patientRecord, report)
+    expect(conflicts.some((conflict) => conflict.field === 'symptoms')).toBe(true)
+  })
+
+  it('does not create a conflict when both sides explicitly match', () => {
+    const patientRecord = {
+      id: 'p-symptom-match',
+      name: 'Test Patient',
+      age: 42,
+      sex: 'Female',
+      symptoms: ['Fatigue'],
+      conditions: ['Anemia'],
+      allergies: [],
+      medications: [],
+      notes: 'Patient intake notes',
+      sourceType: 'user-provided' as const,
+      sourceLabel: 'Patient Intake'
+    }
+
+    const report = parseMedicalReport({
+      id: 'r-symptom-match',
+      reportDate: '2026-09-05',
+      source: {
+        type: 'ai-extracted',
+        label: 'AI extracted'
+      },
+      patientContext: {
+        allergies: [],
+        medications: [],
+        conditions: ['Anemia'],
+        symptoms: ['Fatigue']
+      },
+      tests: [],
+      observations: [],
+      extractedNotes: [],
+      extractionMetadata: {
+        model: 'gemini-2.5-flash',
+        extractedAt: '2026-09-05T12:00:00Z'
+      }
+    })
+
+    const conflicts = detectConflicts(patientRecord, report)
+    expect(conflicts.some((conflict) => conflict.field === 'symptoms')).toBe(false)
+  })
+
+  it('creates a conflict when both sides explicitly differ', () => {
+    const patientRecord = {
+      id: 'p-symptom-differ',
+      name: 'Test Patient',
+      age: 42,
+      sex: 'Female',
+      symptoms: ['Fatigue'],
+      conditions: ['Anemia'],
+      allergies: [],
+      medications: [],
+      notes: 'Patient intake notes',
+      sourceType: 'user-provided' as const,
+      sourceLabel: 'Patient Intake'
+    }
+
+    const report = parseMedicalReport({
+      id: 'r-symptom-differ',
+      reportDate: '2026-09-05',
+      source: {
+        type: 'ai-extracted',
+        label: 'AI extracted'
+      },
+      patientContext: {
+        allergies: [],
+        medications: [],
+        conditions: ['Anemia'],
+        symptoms: ['Chest pain']
+      },
+      tests: [],
+      observations: [],
+      extractedNotes: [],
+      extractionMetadata: {
+        model: 'gemini-2.5-flash',
+        extractedAt: '2026-09-05T12:00:00Z'
+      }
+    })
+
+    const conflicts = detectConflicts(patientRecord, report)
+    expect(conflicts.some((conflict) => conflict.field === 'symptoms')).toBe(true)
   })
 
   it('builds normalized report analysis without inventing data', () => {

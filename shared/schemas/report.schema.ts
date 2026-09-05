@@ -21,6 +21,7 @@ export const referenceRangeSchema = z
   .optional()
 
 export const referenceRangeStatusSchema = z.enum(['low', 'normal', 'high', 'unknown'])
+export const reviewStatusSchema = z.enum(['AI-EXTRACTED', 'NEEDS REVIEW', 'HUMAN-EDITED', 'HUMAN-VERIFIED', 'RESOLVED'])
 
 export const provenanceSchema = z
   .object({
@@ -43,6 +44,7 @@ export const extractedTestSchema = z.object({
   status: z.enum(['low', 'normal', 'high', 'unknown']).default('unknown'),
   referenceRangeStatus: referenceRangeStatusSchema.optional(),
   needsReview: z.boolean().default(false),
+  reviewStatus: reviewStatusSchema.default('AI-EXTRACTED'),
   provenance: provenanceSchema,
   source: z.object({
     type: z.literal('ai-extracted'),
@@ -75,6 +77,8 @@ export const medicalReportSchema = z.object({
   observations: z.array(z.string().trim().min(1).max(500)).optional(),
   extractedNotes: z.array(z.string().trim().min(1).max(500)).optional(),
   patientContext: reportPatientContextSchema.optional(),
+  reviewStatus: reviewStatusSchema.default('AI-EXTRACTED').optional(),
+  aiSummary: z.string().trim().max(2000).optional(),
   extractionMetadata: z
     .object({
       model: z.string().trim().max(200).optional(),

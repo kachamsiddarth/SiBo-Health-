@@ -181,7 +181,7 @@ function extractReportContextValues(report: MedicalReport | null | undefined, fi
   return normalizeList(report?.patientContext?.[field])
 }
 
-function resolveNoConflictStatus(field: string, patientValues: string[], reportValues: string[]): boolean {
+function resolveNoConflictStatus(patientValues: string[], reportValues: string[]): boolean {
   const patientExplicit = patientValues
     .map((value) => normalizeConflictValue(value))
     .filter((value) => value && !isMissingValue(value))
@@ -204,11 +204,11 @@ function resolveNoConflictStatus(field: string, patientValues: string[], reportV
   }
 
   if (patientActual.length > 0 && reportActual.length === 0) {
-    return !patientExplicit.some((value) => isExplicitNegativeValue(value))
+    return reportExplicit.every((value) => !isExplicitNegativeValue(value))
   }
 
   if (patientActual.length === 0 && reportActual.length > 0) {
-    return !reportExplicit.some((value) => isExplicitNegativeValue(value))
+    return patientExplicit.every((value) => !isExplicitNegativeValue(value))
   }
 
   const patientSet = new Set(patientActual)
@@ -326,7 +326,7 @@ export function detectConflicts(patient: PatientRecord | null, report: MedicalRe
   ]
 
   for (const check of checks) {
-    if (resolveNoConflictStatus(check.field, check.patientValues, check.reportValues)) {
+    if (resolveNoConflictStatus(check.patientValues, check.reportValues)) {
       continue
     }
 

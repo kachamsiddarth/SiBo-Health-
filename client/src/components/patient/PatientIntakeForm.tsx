@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { parsePatientRecord, type PatientRecord } from '../../../../shared/schemas/patient.schema'
+import { patientRecordSchema, type PatientRecord } from '../../../../shared/schemas/patient.schema'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Input } from '../ui/Input'
@@ -102,7 +102,12 @@ export function PatientIntakeForm({ patient, onSubmitPatient, onCancel }: Patien
       sourceLabel: 'Patient Intake'
     }
 
-    onSubmitPatient(parsePatientRecord(payload))
+    const parsed = patientRecordSchema.safeParse(payload)
+    if (!parsed.success) {
+      throw new Error(parsed.error.issues[0]?.message ?? 'Please check the patient intake form and try again.')
+    }
+
+    onSubmitPatient(parsed.data)
   }
 
   const { register, handleSubmit, formState: { errors } } = form

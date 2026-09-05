@@ -29,3 +29,24 @@ export async function extractMedicalReport(input: ExtractReportInput): Promise<M
 
   return (await response.json()) as MedicalReport
 }
+
+export async function generateMedicalSummary(input: {
+  patient?: unknown
+  report: MedicalReport
+  previousReport?: MedicalReport | null
+}): Promise<{ summary: string }> {
+  const response = await fetch('/api/reports/summary', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify(input)
+  })
+
+  if (!response.ok) {
+    throw new Error('Unable to generate a summary for this report.')
+  }
+
+  return response.json() as Promise<{ summary: string }>
+}
