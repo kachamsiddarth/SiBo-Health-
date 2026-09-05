@@ -18,6 +18,7 @@ export function DashboardPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [report, setReport] = useState<MedicalReport | null>(null)
+  const [previousReport, setPreviousReport] = useState<MedicalReport | null>(null)
   const [isProcessingReport, setIsProcessingReport] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
 
@@ -48,6 +49,8 @@ export function DashboardPage() {
         ...input,
         sourceType: 'user-provided'
       })
+
+      setPreviousReport(report && nextReport.id !== report.id ? report : null)
       setReport(nextReport)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to extract this report. Please try again.'
@@ -99,7 +102,7 @@ export function DashboardPage() {
 
         <div className="mt-8 space-y-6">
           <ReportInput onSubmit={handleMedicalReportSubmit} isLoading={isProcessingReport} error={reportError} />
-          <ReportResults report={report} />
+          <ReportResults report={report} previousReport={previousReport} patient={patient} />
         </div>
       </PageContainer>
     </AppShell>

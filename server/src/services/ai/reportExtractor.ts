@@ -15,6 +15,7 @@ You are NOT providing treatment advice.
 Extract only information supported by the supplied report.
 Preserve the original wording of test and parameter names.
 Where possible, normalize obvious equivalent terminology while preserving the original term separately.
+If the report includes patient-level context such as allergies, medications, conditions, symptoms, age, or sex, capture it in a top-level "patientContext" object.
 
 Return ONLY valid JSON in this exact shape:
 {
@@ -24,6 +25,16 @@ Return ONLY valid JSON in this exact shape:
     "type": "user-provided",
     "label": "Current Report",
     "fileName": "optional-file-name"
+  },
+  "patientContext": {
+    "allergies": ["Penicillin"],
+    "medications": ["Metformin 500 mg"],
+    "conditions": ["Hypertension"],
+    "symptoms": ["Fatigue"],
+    "demographics": {
+      "age": 42,
+      "sex": "Female"
+    }
   },
   "tests": [
     {
@@ -121,6 +132,77 @@ function normalizeReferenceRange(value: unknown, unit?: string): { low?: number;
   return undefined
 }
 
+function splitFieldList(value: string | undefined): string[] {
+  if (!value) {
+    return []
+  }
+
+  return value
+    .split(/[,;\n]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry) => !/^(none|no known|not provided|unknown|n\/a)$/i.test(entry))
+}
+
+function extractPatientContextFromText(text: string): {
+  allergies?: string[]
+  medications?: string[]
+  conditions?: string[]
+  symptoms?: string[]
+  demographics?: { age?: number | string; sex?: string }
+} {
+  const lines = text.split(/\r?\n/)
+  const result: {
+    allergies?: string[]
+    medications?: string[]
+    conditions?: string[]
+    symptoms?: string[]
+    demographics?: { age?: number | string; sex?: string }
+  } = {}
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    const allergyMatch = trimmed.match(/^allerg(?:y|ies)\s*:\s*(.+)$/i)
+    if (allergyMatch) {
+      result.allergies = splitFieldList(allergyMatch[1])
+      continue
+    }
+
+    const medicationMatch = trimmed.match(/^(?:current\s+)?medications?\s*:\s*(.+)$/i)
+    if (medicationMatch) {
+      result.medications = splitFieldList(medicationMatch[1])
+      continue
+    }
+
+    const conditionMatch = trimmed.match(/^conditions?\s*:\s*(.+)$/i)
+    if (conditionMatch) {
+      result.conditions = splitFieldList(conditionMatch[1])
+      continue
+    }
+
+    const symptomMatch = trimmed.match(/^symptoms?\s*:\s*(.+)$/i)
+    if (symptomMatch) {
+      result.symptoms = splitFieldList(symptomMatch[1])
+      continue
+    }
+
+    const ageMatch = trimmed.match(/^age\s*[:\-]?\s*(\d{1,3})\b/i)
+    if (ageMatch && !result.demographics) {
+      result.demographics = { age: Number(ageMatch[1]) }
+      continue
+    }
+
+    const sexMatch = trimmed.match(/^sex\s*[:\-]?\s*([a-z ]+)$/i)
+    if (sexMatch && !result.demographics) {
+      result.demographics = { sex: sexMatch[1].trim() }
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : {}
+}
+
 function buildFallbackExtraction(input: MedicalReportInput): MedicalReport {
   const text = input.text.replace(/\s+/g, ' ').trim()
   const observations = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).slice(0, 5)
@@ -192,6 +274,7 @@ function buildFallbackExtraction(input: MedicalReportInput): MedicalReport {
       label: 'Current Report',
       fileName: input.fileName
     },
+    patientContext: extractPatientContextFromText(input.text),
     tests,
     observations: observations.length > 0 ? observations : ['Report text captured for structured extraction.'],
     extractedNotes: ['Structured extraction completed in local fallback mode.'],
@@ -270,6 +353,9 @@ function deriveStatus(value: unknown, referenceRange?: unknown): 'low' | 'normal
 
 function normalizeGeminiOutput(parsed: unknown, input: MedicalReportInput): MedicalReport {
   const effectiveReportDate = input.reportDate ?? (parsed && typeof parsed === 'object' && 'reportDate' in parsed && typeof (parsed as Record<string, unknown>).reportDate === 'string' ? String((parsed as Record<string, unknown>).reportDate) : undefined)
+  const effectivePatientContext = (parsed && typeof parsed === 'object' && 'patientContext' in parsed && parsed.patientContext)
+    ? parsed.patientContext
+    : extractPatientContextFromText(input.text)
 
   if (Array.isArray(parsed)) {
     const tests = parsed.map((entry, index) => {
@@ -304,6 +390,7 @@ function normalizeGeminiOutput(parsed: unknown, input: MedicalReportInput): Medi
         label: 'Current Report',
         fileName: input.fileName
       },
+      patientContext: effectivePatientContext,
       tests,
       observations: tests
         .map((test) => test.observation)
@@ -354,6 +441,7 @@ function normalizeGeminiOutput(parsed: unknown, input: MedicalReportInput): Medi
           label: 'Current Report',
           fileName: input.fileName
         },
+        patientContext: effectivePatientContext,
         tests: normalizedTests,
         observations: Array.isArray(candidate.observations) ? candidate.observations.filter((value): value is string => typeof value === 'string') : undefined,
         extractedNotes: Array.isArray(candidate.extractedNotes) ? candidate.extractedNotes.filter((value): value is string => typeof value === 'string') : ['Structured extraction completed with live Gemini output.'],
@@ -372,7 +460,8 @@ function normalizeGeminiOutput(parsed: unknown, input: MedicalReportInput): Medi
       type: 'user-provided',
       label: 'Current Report',
       fileName: input.fileName
-    }
+    },
+    patientContext: effectivePatientContext
   })
 }
 
