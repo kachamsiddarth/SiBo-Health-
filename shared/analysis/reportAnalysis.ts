@@ -163,7 +163,7 @@ export function normalizeReportTests(report: MedicalReport | null | undefined): 
     return []
   }
 
-  return report.tests.map((test) => {
+  return report.tests.map((test: ExtractedTest) => {
     const canonical = normalizeParameterName(test.parameter)
     const rangeStatus = evaluateReferenceRange(test.value, test.referenceRange)
 
@@ -366,12 +366,12 @@ export function compareReports(previousReport: MedicalReport | null | undefined,
     return []
   }
 
-  const previousMap = new Map((previousReport?.tests ?? []).map((test) => [normalizeParameterName(test.parameter), test]))
+  const previousMap = new Map((previousReport?.tests ?? []).map((test: ExtractedTest) => [normalizeParameterName(test.parameter), test]))
   const currentTests = normalizeReportTests(currentReport)
   const results: LongitudinalChange[] = []
 
   for (const test of currentTests) {
-    const previousTest = previousMap.get(test.normalizedParameter)
+    const previousTest = previousMap.get(test.normalizedParameter) as ExtractedTest | undefined
     const currentValue = toNumber(test.value)
     const previousValue = previousTest ? toNumber(previousTest.value) : undefined
 

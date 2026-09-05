@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { generateMedicalSummary } from '../../api/reports'
 import { buildReportAnalysis } from '../../../../shared/analysis/reportAnalysis'
 import type { PatientRecord } from '../../../../shared/schemas/patient.schema'
-import type { MedicalReport } from '../../../../shared/schemas/report.schema'
+import type { ExtractedTest, MedicalReport } from '../../../../shared/schemas/report.schema'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -47,7 +47,7 @@ function buildDeterministicSummary(
     return 'No structured report is available yet.'
   }
 
-  const notable = report.tests.slice(0, 3).map((test) => {
+  const notable = report.tests.slice(0, 3).map((test: ExtractedTest) => {
     const value = typeof test.value === 'number' ? test.value : String(test.value ?? 'not provided')
     const range = test.referenceRange?.text ? `, reference ${test.referenceRange.text}` : ''
     return `${test.parameter}: ${value}${range}`

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest --run --pool=threads"
@@ -24,6 +24,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/ui": "^5.0.0",
     "autoprefixer": "^10.5.5",
     "jsdom": "^30.0.1",
     "oxlint": "^1.79.0",
